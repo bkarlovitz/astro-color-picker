@@ -151,11 +151,12 @@ function createPropertySection(): HTMLElement {
     const label = document.createElement("label");
     label.className = "acp-segment";
 
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "property";
-    input.value = mode.value;
-    input.checked = mode.value === "color";
+  const input = document.createElement("input");
+  input.type = "radio";
+  input.name = "property";
+  input.value = mode.value;
+  input.dataset.colorPickerWidget = "property-mode";
+  input.checked = mode.value === "color";
 
     const text = document.createElement("span");
     text.textContent = mode.label;
@@ -202,6 +203,7 @@ function createEditorSection(): HTMLElement {
   const readout = document.createElement("output");
   readout.className = "acp-readout";
   readout.htmlFor = "color";
+  readout.dataset.colorPickerWidget = "color-readout";
   readout.textContent = "rgb(37 99 235)";
 
   const opacityLabel = document.createElement("label");
@@ -260,6 +262,7 @@ function createRecentColorsSection(): HTMLElement {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "acp-swatch";
+    button.dataset.colorPickerWidget = `${label.toLowerCase()}-swatch`;
     button.setAttribute("aria-label", `${label} color ${value}`);
     button.style.setProperty("--swatch", value);
 

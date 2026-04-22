@@ -4,6 +4,11 @@ import colorPickerWidget from "../src/index.js";
 import { formatCssDeclaration } from "../src/core/export.js";
 import { getStorageKey } from "../src/core/storage.js";
 import { isSupportedColorInput } from "../src/core/colors.js";
+import {
+  extractCssVariableName,
+  formatDisplayColorValue,
+  isTransparentColor
+} from "../src/core/styles.js";
 import type { ColorPickerWidgetOptions } from "../src/types.js";
 import { supportedColorProperties } from "../src/types.js";
 
@@ -65,6 +70,17 @@ describe("Phase 0 scaffold", () => {
     expect(getStorageKey("https://example.test", "/demo")).toBe(
       "astro-color-picker-widget:https://example.test:/demo"
     );
+  });
+
+  it("normalizes transparent color display values", () => {
+    expect(isTransparentColor("rgba(0, 0, 0, 0)")).toBe(true);
+    expect(isTransparentColor("rgb(255 255 255 / 0)")).toBe(true);
+    expect(formatDisplayColorValue("")).toBe("transparent");
+  });
+
+  it("extracts CSS variable names from color declarations", () => {
+    expect(extractCssVariableName("var(--demo-accent)")).toBe("--demo-accent");
+    expect(extractCssVariableName("rgb(0 0 0)")).toBeUndefined();
   });
 });
 

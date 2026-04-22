@@ -6,7 +6,13 @@ import {
   isPickableElement,
   type SelectedElementSummary
 } from "./core/selection.js";
+import {
+  inspectElementColors,
+  type InspectedColorProperty,
+  type StyleInspection
+} from "./core/styles.js";
 import { createColorPickerShell } from "./ui/index.js";
+import type { ColorProperty } from "./types.js";
 
 interface ToolbarAppEventTargetLike {
   onToggled?: (callback: (event: { state: boolean }) => void) => void;
@@ -25,6 +31,7 @@ export function mountColorPickerApp(
 
   let isPicking = false;
   let selectedSummary: SelectedElementSummary | null = null;
+  let currentInspection: StyleInspection | null = null;
 
   const pickButton = getRequiredElement<HTMLButtonElement>(
     windowElement,
@@ -50,6 +57,35 @@ export function mountColorPickerApp(
     windowElement,
     '[data-color-picker-widget="status-message"]'
   );
+  const colorInput = getRequiredElement<HTMLInputElement>(
+    windowElement,
+    '[data-color-picker-widget="color-input"]'
+  );
+  const hexInput = getRequiredElement<HTMLInputElement>(
+    windowElement,
+    '[data-color-picker-widget="hex-input"]'
+  );
+  const colorReadout = getRequiredElement<HTMLElement>(
+    windowElement,
+    '[data-color-picker-widget="color-readout"]'
+  );
+  const tokenSummary = getRequiredElement<HTMLElement>(
+    windowElement,
+    '[data-color-picker-widget="token-summary"]'
+  );
+  const currentSwatch = getRequiredElement<HTMLButtonElement>(
+    windowElement,
+    '[data-color-picker-widget="current-swatch"]'
+  );
+  const originalSwatch = getRequiredElement<HTMLButtonElement>(
+    windowElement,
+    '[data-color-picker-widget="original-swatch"]'
+  );
+  const propertyModeInputs = Array.from(
+    windowElement.querySelectorAll<HTMLInputElement>(
+      '[data-color-picker-widget="property-mode"]'
+    )
+  );
 
   const picker = createElementPicker({
     onHover(summary) {
@@ -61,10 +97,12 @@ export function mountColorPickerApp(
         ? `Hovering ${formatElementLabel(summary)}`
         : "Hover over the page to choose an element";
     },
-    onSelect(summary) {
+    onSelect(summary, element) {
       selectedSummary = summary;
+      currentInspection = inspectElementColors(element);
       isPicking = false;
       renderSelectedState(summary);
+      renderInspectedProperty();
       setMode("Selected");
       setPickButtonLabel("Pick");
       statusMessage.textContent = "Element selected.";
@@ -78,9 +116,11 @@ export function mountColorPickerApp(
     },
     onSelectionLost() {
       selectedSummary = null;
+      currentInspection = null;
       isPicking = false;
       selectorInput.value = "";
       renderSelectedState(null);
+      renderInspectedProperty();
       setMode("Ready");
       setPickButtonLabel("Pick");
       statusMessage.textContent = "Selected element is no longer on the page.";
@@ -108,14 +148,20 @@ export function mountColorPickerApp(
 
   clearButton.addEventListener("click", () => {
     selectedSummary = null;
+    currentInspection = null;
     isPicking = false;
     picker.clear();
     selectorInput.value = "";
     setMode("Ready");
     setPickButtonLabel("Pick");
     renderSelectedState(null);
+    renderInspectedProperty();
     statusMessage.textContent = "Selection cleared.";
   });
+
+  for (const input of propertyModeInputs) {
+    input.addEventListener("change", renderInspectedProperty);
+  }
 
   selectorInput.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
@@ -137,11 +183,13 @@ export function mountColorPickerApp(
 
     isPicking = false;
     selectedSummary = null;
+    currentInspection = null;
     picker.clear();
     selectorInput.value = "";
     setMode("Ready");
     setPickButtonLabel("Pick");
     renderSelectedState(null);
+    renderInspectedProperty();
     statusMessage.textContent = "";
   });
 
@@ -167,7 +215,9 @@ export function mountColorPickerApp(
     picker.stop();
     const summary = picker.select(element);
     selectedSummary = summary;
+    currentInspection = inspectElementColors(element);
     renderSelectedState(summary);
+    renderInspectedProperty();
     setMode("Selected");
     setPickButtonLabel("Pick");
     statusMessage.textContent = "Element selected.";
@@ -196,12 +246,108 @@ export function mountColorPickerApp(
     }
   }
 
+  function renderInspectedProperty() {
+    if (!currentInspection) {
+      colorReadout.textContent = "No element selected";
+      colorInput.value = "#000000";
+      hexInput.value = "";
+      tokenSummary.textContent = "No variable detected";
+      setSwatch(currentSwatch, "#000000", "Current", "Current");
+      setSwatch(originalSwatch, "#000000", "Original", "Original");
+      return;
+    }
+
+    const property = getSelectedColorProperty();
+    const inspected = currentInspection.properties[property];
+    const colorValue = inspected.displayValue;
+    const hexValue = rgbToHex(colorValue);
+
+    colorReadout.textContent = `${property}: ${colorValue}`;
+    hexInput.value = hexValue ?? colorValue;
+    if (hexValue) {
+      colorInput.value = hexValue;
+    }
+
+    setSwatch(
+      currentSwatch,
+      hexValue ?? "#000000",
+      `Current ${colorValue}`,
+      "Current"
+    );
+    setSwatch(
+      originalSwatch,
+      rgbToHex(inspected.originalValue) ?? "#000000",
+      `Original ${inspected.displayValue}`,
+      "Original"
+    );
+    tokenSummary.textContent = formatTokenSummary(inspected);
+  }
+
+  function getSelectedColorProperty(): ColorProperty {
+    const selected = propertyModeInputs.find((input) => input.checked)?.value;
+    if (
+      selected === "color" ||
+      selected === "background-color" ||
+      selected === "border-color"
+    ) {
+      return selected;
+    }
+
+    return "color";
+  }
+
+  function formatTokenSummary(inspected: InspectedColorProperty): string {
+    if (!inspected.detectedVariable) {
+      return inspected.transparent
+        ? "No variable detected; computed value is transparent"
+        : "No variable detected";
+    }
+
+    const variable = inspected.detectedVariable;
+    const scope = variable.scope ? ` in ${variable.scope}` : "";
+    return `${variable.name}${scope} resolves to ${
+      variable.resolvedValue || inspected.displayValue
+    }`;
+  }
+
   return {
     destroy: () => {
       picker.destroy();
       windowElement.remove();
     }
   };
+}
+
+function setSwatch(
+  button: HTMLButtonElement,
+  value: string,
+  label: string,
+  visibleLabel: string
+) {
+  button.style.setProperty("--swatch", value);
+  button.setAttribute("aria-label", label);
+  const text = button.querySelector("span");
+  if (text) {
+    text.textContent = visibleLabel;
+  }
+}
+
+function rgbToHex(value: string): string | undefined {
+  const match = value
+    .trim()
+    .match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+  if (!match) {
+    return /^#[0-9a-f]{6}$/i.test(value.trim()) ? value.trim() : undefined;
+  }
+
+  const [, red, green, blue] = match;
+  return `#${[red, green, blue]
+    .map((channel) =>
+      Math.max(0, Math.min(255, Math.round(Number(channel))))
+        .toString(16)
+        .padStart(2, "0")
+    )
+    .join("")}`;
 }
 
 export default defineToolbarApp({
