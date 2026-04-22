@@ -1,18 +1,18 @@
 import { defineToolbarApp } from "astro/toolbar";
 
+import { createColorPickerShell } from "./ui/index.js";
+
 export interface ColorPickerAppHandle {
   destroy: () => void;
 }
 
 export function mountColorPickerApp(root: ShadowRoot): ColorPickerAppHandle {
-  const container = document.createElement("div");
-  container.dataset.colorPickerWidget = "root";
-  container.textContent = "Color Picker";
-  root.append(container);
+  const windowElement = createColorPickerShell();
+  root.append(windowElement);
 
   return {
     destroy: () => {
-      container.remove();
+      windowElement.remove();
     }
   };
 }
