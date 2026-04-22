@@ -2,14 +2,12 @@
 
 ## Current Repository State
 
-Phase 0 scaffold is now present:
+Phase 6 implementation is now present:
 
-- Root package metadata, TypeScript config, Vitest config, and npm workspace setup.
-- Minimal source layout matching the planned architecture boundaries.
-- Local Astro demo project that references the package with `file:..`.
-- README with current scaffold status and dependency notes.
-
-The functional toolbar implementation has not started yet. Phase 1 should add actual Dev Toolbar app registration and runtime entrypoint wiring.
+- Astro integration registration is present and dev-only.
+- The Dev Toolbar app shell renders in the toolbar ShadowRoot.
+- Element picking, selector display, style inspection, live preview, and reset behavior are implemented.
+- Copy output, recent colors, and local browser-session persistence are implemented for Phase 6.
 
 ## Goal
 

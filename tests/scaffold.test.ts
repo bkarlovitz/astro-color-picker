@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
 import colorPickerWidget from "../src/index.js";
-import { formatCssDeclaration } from "../src/core/export.js";
-import { getStorageKey } from "../src/core/storage.js";
+import {
+  formatCssDeclaration,
+  formatCssDeclarations
+} from "../src/core/export.js";
+import {
+  clearColorPickerSession,
+  getStorageKey,
+  loadColorPickerSession,
+  saveColorPickerSession
+} from "../src/core/storage.js";
 import { isSupportedColorInput } from "../src/core/colors.js";
 import { createStyleMutationManager } from "../src/core/mutations.js";
 import {
@@ -168,5 +176,98 @@ describe("Phase 5 mutation tracking", () => {
 
     manager.resetAll();
     expect(element.style.getPropertyValue("background-color")).toBe("");
+  });
+});
+
+describe("Phase 6 copy and persistence helpers", () => {
+  class FakeStorage {
+    private readonly values = new Map<string, string>();
+
+    getItem(key: string) {
+      return this.values.get(key) ?? null;
+    }
+
+    setItem(key: string, value: string) {
+      this.values.set(key, value);
+    }
+
+    removeItem(key: string) {
+      this.values.delete(key);
+    }
+  }
+
+  const location = {
+    origin: "https://example.test",
+    pathname: "/colors"
+  } as Location;
+
+  it("groups copied CSS changes by selector in insertion order", () => {
+    expect(
+      formatCssDeclarations([
+        {
+          selector: ".button",
+          property: "color",
+          value: "#111111"
+        },
+        {
+          selector: ".button",
+          property: "background-color",
+          value: "#ffffff"
+        },
+        {
+          selector: ":root",
+          property: "--accent",
+          value: "#2563eb"
+        }
+      ])
+    ).toBe(
+      ".button {\n  color: #111111;\n  background-color: #ffffff;\n}\n\n:root {\n  --accent: #2563eb;\n}"
+    );
+  });
+
+  it("round-trips a page-scoped persisted session", () => {
+    const storage = new FakeStorage() as unknown as Storage;
+
+    saveColorPickerSession(storage, location, {
+      version: 1,
+      recentColors: ["#2563eb"],
+      changes: [
+        {
+          selector: ".button",
+          property: "background-color",
+          value: "#ffffff"
+        }
+      ]
+    });
+
+    expect(loadColorPickerSession(storage, location)).toEqual({
+      version: 1,
+      recentColors: ["#2563eb"],
+      changes: [
+        {
+          selector: ".button",
+          property: "background-color",
+          value: "#ffffff"
+        }
+      ]
+    });
+
+    clearColorPickerSession(storage, location);
+    expect(loadColorPickerSession(storage, location)).toEqual({
+      version: 1,
+      recentColors: [],
+      changes: []
+    });
+  });
+
+  it("falls back to an empty session for invalid persisted data", () => {
+    const storage = new FakeStorage() as unknown as Storage;
+    storage.setItem(getStorageKey(location.origin, location.pathname), "{");
+
+    expect(loadColorPickerSession(storage, location)).toEqual({
+      version: 1,
+      recentColors: [],
+      changes: []
+    });
   });
 });

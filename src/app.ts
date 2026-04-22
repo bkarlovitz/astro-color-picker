@@ -3,10 +3,26 @@ import { defineToolbarApp } from "astro/toolbar";
 import {
   createElementPicker,
   formatElementLabel,
+  generateSelector,
   isPickableElement,
   type SelectedElementSummary
 } from "./core/selection.js";
-import { createStyleMutationManager } from "./core/mutations.js";
+import {
+  createStyleMutationManager,
+  type StyleMutationRecord
+} from "./core/mutations.js";
+import {
+  formatCssDeclarations,
+  formatCssVariableAssignment,
+  type CssDeclarationChange
+} from "./core/export.js";
+import {
+  clearColorPickerSession,
+  loadColorPickerSession,
+  saveColorPickerSession,
+  type PersistedColorPickerSession,
+  type PersistedStyleChange
+} from "./core/storage.js";
 import {
   inspectElementColors,
   type InspectedColorProperty,
@@ -99,12 +115,35 @@ export function mountColorPickerApp(
     windowElement,
     '[data-action="reset-all"]'
   );
+  const copyCssButton = getRequiredElement<HTMLButtonElement>(
+    windowElement,
+    '[data-action="copy-css"]'
+  );
+  const copyAllButton = getRequiredElement<HTMLButtonElement>(
+    windowElement,
+    '[data-action="copy-all"]'
+  );
+  const copyTokenButton = getRequiredElement<HTMLButtonElement>(
+    windowElement,
+    '[data-action="copy-token"]'
+  );
+  const clearSavedButton = getRequiredElement<HTMLButtonElement>(
+    windowElement,
+    '[data-action="clear-saved"]'
+  );
+  const recentSwatches = Array.from(
+    windowElement.querySelectorAll<HTMLButtonElement>(
+      '[data-color-picker-widget="recent-swatch"]'
+    )
+  );
   const propertyModeInputs = Array.from(
     windowElement.querySelectorAll<HTMLInputElement>(
       '[data-color-picker-widget="property-mode"]'
     )
   );
   const mutations = createStyleMutationManager();
+  let persistedSession = loadSession();
+  let recentColors = persistedSession.recentColors;
 
   const picker = createElementPicker({
     onHover(summary) {
@@ -211,10 +250,70 @@ export function mountColorPickerApp(
 
   resetAllButton.addEventListener("click", () => {
     mutations.resetAll();
+    persistSession();
     refreshInspection();
     renderInspectedProperty();
     statusMessage.textContent = "All preview changes reset.";
   });
+
+  copyCssButton.addEventListener("click", () => {
+    const change = getCurrentDeclarationChange();
+    if (!change) {
+      statusMessage.textContent = "No current preview change to copy.";
+      return;
+    }
+
+    void copyText(formatCssDeclarations([change]), "CSS copied.");
+  });
+
+  copyAllButton.addEventListener("click", () => {
+    const changes = getAllDeclarationChanges();
+    if (changes.length === 0) {
+      statusMessage.textContent = "No preview changes to copy.";
+      return;
+    }
+
+    void copyText(formatCssDeclarations(changes), "All CSS changes copied.");
+  });
+
+  copyTokenButton.addEventListener("click", () => {
+    const change = getCurrentDeclarationChange();
+    if (!change || !change.property.startsWith("--")) {
+      statusMessage.textContent = "No current token change to copy.";
+      return;
+    }
+
+    void copyText(formatCssVariableAssignment(change), "Token copied.");
+  });
+
+  clearSavedButton.addEventListener("click", () => {
+    clearPersistedSession();
+    recentColors = [];
+    persistedSession = {
+      version: 1,
+      recentColors,
+      changes: []
+    };
+    renderRecentColors();
+    renderInspectedProperty();
+    statusMessage.textContent = "Saved session cleared.";
+  });
+
+  for (const swatch of recentSwatches) {
+    swatch.addEventListener("click", () => {
+      const color = swatch.dataset.colorValue;
+      if (!color) {
+        return;
+      }
+
+      hexInput.value = color;
+      const hexColor = rgbToHex(color) ?? color;
+      if (/^#[0-9a-f]{6}$/i.test(hexColor)) {
+        colorInput.value = hexColor;
+      }
+      applyCurrentPreview();
+    });
+  }
 
   selectorInput.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
@@ -231,6 +330,7 @@ export function mountColorPickerApp(
 
   app?.onToggled?.(({ state }) => {
     if (state) {
+      restorePersistedSession();
       return;
     }
 
@@ -247,6 +347,8 @@ export function mountColorPickerApp(
     renderInspectedProperty();
     statusMessage.textContent = "";
   });
+
+  restorePersistedSession();
 
   function selectFromManualSelector(selector: string) {
     const trimmedSelector = selector.trim();
@@ -314,6 +416,11 @@ export function mountColorPickerApp(
       editVariableToggle.disabled = true;
       resetPropertyButton.disabled = true;
       resetAllButton.disabled = !mutations.hasMutation();
+      copyCssButton.disabled = true;
+      copyAllButton.disabled = !mutations.hasMutation();
+      copyTokenButton.disabled = true;
+      clearSavedButton.disabled = !hasPersistedSession();
+      renderRecentColors();
       return;
     }
 
@@ -347,6 +454,11 @@ export function mountColorPickerApp(
     }
     resetPropertyButton.disabled = !hasCurrentPropertyMutation();
     resetAllButton.disabled = !mutations.hasMutation();
+    copyCssButton.disabled = !hasCurrentPropertyMutation();
+    copyAllButton.disabled = !mutations.hasMutation();
+    copyTokenButton.disabled = !hasCurrentTokenMutation();
+    clearSavedButton.disabled = !hasPersistedSession();
+    renderRecentColors();
   }
 
   function getSelectedColorProperty(): ColorProperty {
@@ -401,6 +513,8 @@ export function mountColorPickerApp(
       statusMessage.textContent = `Previewing ${property}.`;
     }
 
+    rememberRecentColor(value);
+    persistSession();
     refreshInspection();
     renderInspectedProperty();
   }
@@ -424,6 +538,7 @@ export function mountColorPickerApp(
       statusMessage.textContent = "Current preview change reset.";
     }
 
+    persistSession();
     refreshInspection();
     renderInspectedProperty();
   }
@@ -449,6 +564,215 @@ export function mountColorPickerApp(
     }
 
     return mutations.hasMutation(selectedElement, property);
+  }
+
+  function hasCurrentTokenMutation() {
+    const change = getCurrentDeclarationChange();
+    return Boolean(change?.property.startsWith("--"));
+  }
+
+  function getCurrentMutationRecord(): StyleMutationRecord | undefined {
+    if (!selectedElement || !currentInspection) {
+      return undefined;
+    }
+
+    const property = getSelectedColorProperty();
+    const variable = currentInspection.properties[property].detectedVariable;
+    const useVariable = editVariableToggle.checked && variable;
+    const target = useVariable
+      ? variable.scopeElement ?? selectedElement
+      : selectedElement;
+    const mutationProperty = useVariable ? variable.name : property;
+
+    return mutations
+      .getRecords()
+      .find(
+        (record) =>
+          record.element === target && record.property === mutationProperty
+      );
+  }
+
+  function getCurrentDeclarationChange(): CssDeclarationChange | undefined {
+    const record = getCurrentMutationRecord();
+    return record ? createDeclarationChange(record) : undefined;
+  }
+
+  function getAllDeclarationChanges(): CssDeclarationChange[] {
+    return mutations.getRecords().map(createDeclarationChange);
+  }
+
+  function createDeclarationChange(
+    record: StyleMutationRecord
+  ): CssDeclarationChange {
+    return {
+      selector: getSelectorForMutationTarget(record.element),
+      property: record.property,
+      value: record.nextValue
+    };
+  }
+
+  function getSelectorForMutationTarget(element: HTMLElement): string {
+    if (element === document.documentElement) {
+      return ":root";
+    }
+
+    if (element === document.body) {
+      return "body";
+    }
+
+    return generateSelector(element);
+  }
+
+  function rememberRecentColor(value: string) {
+    const color = rgbToHex(value) ?? value;
+    recentColors = [
+      color,
+      ...recentColors.filter(
+        (existingColor) =>
+          existingColor.toLowerCase() !== color.toLowerCase()
+      )
+    ].slice(0, recentSwatches.length);
+  }
+
+  function renderRecentColors() {
+    for (const [index, swatch] of recentSwatches.entries()) {
+      const color = recentColors[index];
+      swatch.hidden = !color;
+      swatch.dataset.colorValue = color ?? "";
+
+      if (color) {
+        setSwatch(swatch, color, `Recent ${color}`, color);
+      }
+    }
+  }
+
+  function loadSession(): PersistedColorPickerSession {
+    try {
+      return loadColorPickerSession(localStorage, window.location);
+    } catch {
+      return {
+        version: 1,
+        recentColors: [],
+        changes: []
+      };
+    }
+  }
+
+  function restorePersistedSession() {
+    persistedSession = loadSession();
+    recentColors = persistedSession.recentColors.slice(0, recentSwatches.length);
+
+    let restoredCount = 0;
+    for (const change of persistedSession.changes) {
+      const element = getElementForPersistedChange(change);
+      if (!element || !isPersistableProperty(change.property)) {
+        continue;
+      }
+
+      mutations.apply(element, change.property, change.value);
+      restoredCount += 1;
+    }
+
+    refreshInspection();
+    renderInspectedProperty();
+    if (restoredCount > 0) {
+      statusMessage.textContent = "Saved preview changes restored.";
+    }
+  }
+
+  function getElementForPersistedChange(
+    change: PersistedStyleChange
+  ): HTMLElement | null {
+    try {
+      const element = document.querySelector(change.selector);
+      return element instanceof HTMLElement ? element : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function isPersistableProperty(
+    property: string
+  ): property is ColorProperty | `--${string}` {
+    return (
+      property === "color" ||
+      property === "background-color" ||
+      property === "border-color" ||
+      property.startsWith("--")
+    );
+  }
+
+  function persistSession() {
+    persistedSession = {
+      version: 1,
+      recentColors,
+      changes: mutations.getRecords().map((record) => ({
+        selector: getSelectorForMutationTarget(record.element),
+        property: record.property,
+        value: record.nextValue
+      }))
+    };
+
+    try {
+      saveColorPickerSession(localStorage, window.location, persistedSession);
+    } catch {
+      statusMessage.textContent = "Unable to save this preview session.";
+    }
+  }
+
+  function clearPersistedSession() {
+    try {
+      clearColorPickerSession(localStorage, window.location);
+    } catch {
+      statusMessage.textContent = "Unable to clear saved session.";
+    }
+  }
+
+  function hasPersistedSession() {
+    return (
+      persistedSession.recentColors.length > 0 ||
+      persistedSession.changes.length > 0
+    );
+  }
+
+  async function copyText(value: string, successMessage: string) {
+    if (!value.trim()) {
+      statusMessage.textContent = "No preview changes to copy.";
+      return;
+    }
+
+    try {
+      await writeClipboardText(value);
+      statusMessage.textContent = successMessage;
+    } catch {
+      statusMessage.textContent = "Clipboard copy failed.";
+    }
+  }
+
+  async function writeClipboardText(value: string) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const textArea = document.createElement("textarea");
+    textArea.value = value;
+    textArea.setAttribute("readonly", "true");
+    Object.assign(textArea.style, {
+      position: "fixed",
+      left: "-9999px",
+      top: "0"
+    });
+    document.body.append(textArea);
+    textArea.select();
+
+    try {
+      if (!document.execCommand("copy")) {
+        throw new Error("execCommand copy returned false.");
+      }
+    } finally {
+      textArea.remove();
+    }
   }
 
   function getPreviewColorValue(): string | undefined {

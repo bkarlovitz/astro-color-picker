@@ -1,10 +1,15 @@
 # Astro Color Picker Widget
 
-Development scaffold for an Astro Dev Toolbar color picker integration.
+Astro Dev Toolbar color picker integration for local color inspection,
+preview, copying, and browser-session persistence.
 
 ## Status
 
-This package is at Phase 0 from `DEVELOPMENT_PLAN.md`: project scaffold only. It builds as a TypeScript package and includes a demo Astro project, but it does not register toolbar behavior yet.
+This package has Phase 6 behavior from `DEVELOPMENT_PLAN.md`. The
+integration registers an Astro Dev Toolbar app during `astro dev`, renders the
+toolbar UI, supports element picking, previews direct color and CSS variable
+changes, resets browser-only mutations, and includes copy/persistence
+behavior.
 
 Tested scaffold target:
 
@@ -26,4 +31,5 @@ The `demo` workspace references the local package with `file:..`.
 npm --workspace demo run build
 ```
 
-Toolbar registration and runtime behavior start in Phase 1.
+Toolbar registration and runtime behavior are implemented. Run `astro dev` in
+the demo workspace to inspect the current app manually.

@@ -256,17 +256,23 @@ function createRecentColorsSection(): HTMLElement {
   const swatches = document.createElement("div");
   swatches.className = "acp-swatches";
 
-  for (const [label, value] of [
-    ["Current", "#2563eb"],
-    ["Original", "#18181b"],
-    ["Recent", "#f59e0b"]
+  for (const [label, value, kind] of [
+    ["Current", "#2563eb", "current-swatch"],
+    ["Original", "#18181b", "original-swatch"],
+    ["Recent", "#f59e0b", "recent-swatch"],
+    ["Recent", "#0d9488", "recent-swatch"],
+    ["Recent", "#18181b", "recent-swatch"],
+    ["Recent", "#ffffff", "recent-swatch"]
   ] as const) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "acp-swatch";
-    button.dataset.colorPickerWidget = `${label.toLowerCase()}-swatch`;
+    button.dataset.colorPickerWidget = kind;
     button.setAttribute("aria-label", `${label} color ${value}`);
     button.style.setProperty("--swatch", value);
+    if (kind === "recent-swatch") {
+      button.hidden = true;
+    }
 
     const text = document.createElement("span");
     text.textContent = label;
@@ -299,10 +305,21 @@ function createActionsSection(): HTMLElement {
       disabled: true,
       icon: copyIcon
     }),
+    createButton("Copy All", {
+      action: "copy-all",
+      disabled: true,
+      icon: copyIcon
+    }),
     createButton("Copy Token", {
       action: "copy-token",
       disabled: true,
       icon: copyIcon
+    }),
+    createButton("Clear Saved", {
+      action: "clear-saved",
+      disabled: true,
+      icon: xIcon,
+      variant: "ghost"
     })
   );
 
