@@ -216,6 +216,7 @@ function createEditorSection(): HTMLElement {
   opacityInput.min = "0";
   opacityInput.max = "100";
   opacityInput.value = "100";
+  opacityInput.dataset.colorPickerWidget = "opacity-input";
   opacityLabel.append(opacityText, opacityInput);
 
   section.append(grid, readout, opacityLabel);
@@ -235,6 +236,7 @@ function createTokenSection(): HTMLElement {
   const input = document.createElement("input");
   input.type = "checkbox";
   input.name = "edit-variable";
+  input.dataset.colorPickerWidget = "edit-variable-toggle";
   input.disabled = true;
 
   const control = document.createElement("span");

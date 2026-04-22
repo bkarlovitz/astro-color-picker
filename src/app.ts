@@ -6,6 +6,7 @@ import {
   isPickableElement,
   type SelectedElementSummary
 } from "./core/selection.js";
+import { createStyleMutationManager } from "./core/mutations.js";
 import {
   inspectElementColors,
   type InspectedColorProperty,
@@ -31,6 +32,7 @@ export function mountColorPickerApp(
 
   let isPicking = false;
   let selectedSummary: SelectedElementSummary | null = null;
+  let selectedElement: Element | null = null;
   let currentInspection: StyleInspection | null = null;
 
   const pickButton = getRequiredElement<HTMLButtonElement>(
@@ -65,6 +67,10 @@ export function mountColorPickerApp(
     windowElement,
     '[data-color-picker-widget="hex-input"]'
   );
+  const opacityInput = getRequiredElement<HTMLInputElement>(
+    windowElement,
+    '[data-color-picker-widget="opacity-input"]'
+  );
   const colorReadout = getRequiredElement<HTMLElement>(
     windowElement,
     '[data-color-picker-widget="color-readout"]'
@@ -81,11 +87,24 @@ export function mountColorPickerApp(
     windowElement,
     '[data-color-picker-widget="original-swatch"]'
   );
+  const editVariableToggle = getRequiredElement<HTMLInputElement>(
+    windowElement,
+    '[data-color-picker-widget="edit-variable-toggle"]'
+  );
+  const resetPropertyButton = getRequiredElement<HTMLButtonElement>(
+    windowElement,
+    '[data-action="reset-property"]'
+  );
+  const resetAllButton = getRequiredElement<HTMLButtonElement>(
+    windowElement,
+    '[data-action="reset-all"]'
+  );
   const propertyModeInputs = Array.from(
     windowElement.querySelectorAll<HTMLInputElement>(
       '[data-color-picker-widget="property-mode"]'
     )
   );
+  const mutations = createStyleMutationManager();
 
   const picker = createElementPicker({
     onHover(summary) {
@@ -99,6 +118,7 @@ export function mountColorPickerApp(
     },
     onSelect(summary, element) {
       selectedSummary = summary;
+      selectedElement = element;
       currentInspection = inspectElementColors(element);
       isPicking = false;
       renderSelectedState(summary);
@@ -116,6 +136,7 @@ export function mountColorPickerApp(
     },
     onSelectionLost() {
       selectedSummary = null;
+      selectedElement = null;
       currentInspection = null;
       isPicking = false;
       selectorInput.value = "";
@@ -148,6 +169,7 @@ export function mountColorPickerApp(
 
   clearButton.addEventListener("click", () => {
     selectedSummary = null;
+    selectedElement = null;
     currentInspection = null;
     isPicking = false;
     picker.clear();
@@ -160,8 +182,39 @@ export function mountColorPickerApp(
   });
 
   for (const input of propertyModeInputs) {
-    input.addEventListener("change", renderInspectedProperty);
+    input.addEventListener("change", () => {
+      editVariableToggle.checked = false;
+      renderInspectedProperty();
+    });
   }
+
+  colorInput.addEventListener("input", () => {
+    hexInput.value = colorInput.value;
+    applyCurrentPreview();
+  });
+
+  hexInput.addEventListener("input", () => {
+    applyCurrentPreview();
+  });
+
+  opacityInput.addEventListener("input", () => {
+    applyCurrentPreview();
+  });
+
+  editVariableToggle.addEventListener("change", () => {
+    applyCurrentPreview();
+  });
+
+  resetPropertyButton.addEventListener("click", () => {
+    resetCurrentProperty();
+  });
+
+  resetAllButton.addEventListener("click", () => {
+    mutations.resetAll();
+    refreshInspection();
+    renderInspectedProperty();
+    statusMessage.textContent = "All preview changes reset.";
+  });
 
   selectorInput.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
@@ -183,7 +236,9 @@ export function mountColorPickerApp(
 
     isPicking = false;
     selectedSummary = null;
+    selectedElement = null;
     currentInspection = null;
+    mutations.resetAll();
     picker.clear();
     selectorInput.value = "";
     setMode("Ready");
@@ -215,6 +270,7 @@ export function mountColorPickerApp(
     picker.stop();
     const summary = picker.select(element);
     selectedSummary = summary;
+    selectedElement = element;
     currentInspection = inspectElementColors(element);
     renderSelectedState(summary);
     renderInspectedProperty();
@@ -254,6 +310,10 @@ export function mountColorPickerApp(
       tokenSummary.textContent = "No variable detected";
       setSwatch(currentSwatch, "#000000", "Current", "Current");
       setSwatch(originalSwatch, "#000000", "Original", "Original");
+      editVariableToggle.checked = false;
+      editVariableToggle.disabled = true;
+      resetPropertyButton.disabled = true;
+      resetAllButton.disabled = !mutations.hasMutation();
       return;
     }
 
@@ -281,6 +341,12 @@ export function mountColorPickerApp(
       "Original"
     );
     tokenSummary.textContent = formatTokenSummary(inspected);
+    editVariableToggle.disabled = !inspected.detectedVariable;
+    if (!inspected.detectedVariable) {
+      editVariableToggle.checked = false;
+    }
+    resetPropertyButton.disabled = !hasCurrentPropertyMutation();
+    resetAllButton.disabled = !mutations.hasMutation();
   }
 
   function getSelectedColorProperty(): ColorProperty {
@@ -310,8 +376,105 @@ export function mountColorPickerApp(
     }`;
   }
 
+  function applyCurrentPreview() {
+    if (!selectedElement || !currentInspection) {
+      statusMessage.textContent = "Select an element before editing colors.";
+      return;
+    }
+
+    const value = getPreviewColorValue();
+    if (!value) {
+      statusMessage.textContent = "Enter a supported color value.";
+      return;
+    }
+
+    const property = getSelectedColorProperty();
+    const inspected = currentInspection.properties[property];
+    const variable = inspected.detectedVariable;
+
+    if (editVariableToggle.checked && variable) {
+      const target = variable.scopeElement ?? selectedElement;
+      mutations.apply(target, variable.name, value);
+      statusMessage.textContent = `Previewing ${variable.name}.`;
+    } else {
+      mutations.apply(selectedElement, property, value);
+      statusMessage.textContent = `Previewing ${property}.`;
+    }
+
+    refreshInspection();
+    renderInspectedProperty();
+  }
+
+  function resetCurrentProperty() {
+    if (!selectedElement || !currentInspection) {
+      return;
+    }
+
+    const property = getSelectedColorProperty();
+    const inspected = currentInspection.properties[property];
+    const variable = inspected.detectedVariable;
+    const target =
+      editVariableToggle.checked && variable
+        ? variable.scopeElement ?? selectedElement
+        : selectedElement;
+    const mutationProperty =
+      editVariableToggle.checked && variable ? variable.name : property;
+
+    if (mutations.reset(target, mutationProperty)) {
+      statusMessage.textContent = "Current preview change reset.";
+    }
+
+    refreshInspection();
+    renderInspectedProperty();
+  }
+
+  function refreshInspection() {
+    if (selectedElement) {
+      currentInspection = preserveOriginalValues(
+        inspectElementColors(selectedElement),
+        currentInspection
+      );
+    }
+  }
+
+  function hasCurrentPropertyMutation() {
+    if (!selectedElement || !currentInspection) {
+      return false;
+    }
+
+    const property = getSelectedColorProperty();
+    const variable = currentInspection.properties[property].detectedVariable;
+    if (editVariableToggle.checked && variable) {
+      return mutations.hasMutation(variable.scopeElement ?? selectedElement, variable.name);
+    }
+
+    return mutations.hasMutation(selectedElement, property);
+  }
+
+  function getPreviewColorValue(): string | undefined {
+    const rawValue = hexInput.value.trim();
+    if (!rawValue) {
+      return undefined;
+    }
+
+    if (opacityInput.value !== "100" && /^#[0-9a-f]{6}$/i.test(rawValue)) {
+      return hexToRgb(rawValue, Number(opacityInput.value) / 100);
+    }
+
+    if (
+      /^#[0-9a-f]{3,8}$/i.test(rawValue) ||
+      /^rgba?\(/i.test(rawValue) ||
+      /^hsla?\(/i.test(rawValue)
+    ) {
+      return rawValue;
+    }
+
+    return undefined;
+  }
+
   return {
     destroy: () => {
+      mutations.resetAll();
       picker.destroy();
       windowElement.remove();
     }
@@ -348,6 +511,33 @@ function rgbToHex(value: string): string | undefined {
         .padStart(2, "0")
     )
     .join("")}`;
+}
+
+function hexToRgb(value: string, alpha: number): string {
+  const normalized = value.replace("#", "");
+  const channels = normalized.match(/.{2}/g);
+  if (!channels) {
+    return value;
+  }
+
+  const [red, green, blue] = channels.map((channel) => parseInt(channel, 16));
+  return `rgba(${red}, ${green}, ${blue}, ${alpha.toFixed(2)})`;
+}
+
+function preserveOriginalValues(
+  nextInspection: StyleInspection,
+  previousInspection: StyleInspection | null
+): StyleInspection {
+  if (!previousInspection) {
+    return nextInspection;
+  }
+
+  for (const property of Object.keys(nextInspection.properties) as ColorProperty[]) {
+    nextInspection.properties[property].originalValue =
+      previousInspection.properties[property].originalValue;
+  }
+
+  return nextInspection;
 }
 
 export default defineToolbarApp({

@@ -10,10 +10,11 @@ export interface InspectedColorProperty {
 }
 
 export interface DetectedCssVariable {
-  name: string;
+  name: `--${string}`;
   declarationValue: string;
   resolvedValue: string;
   scope?: string;
+  scopeElement?: HTMLElement;
 }
 
 export interface StyleInspection {
@@ -114,7 +115,9 @@ function detectCssVariableForProperty(
     return undefined;
   }
 
-  const name = extractCssVariableName(declaration.value);
+  const name = extractCssVariableName(declaration.value) as
+    | `--${string}`
+    | undefined;
   if (!name) {
     return undefined;
   }
@@ -123,7 +126,7 @@ function detectCssVariableForProperty(
     name,
     declarationValue: declaration.value,
     resolvedValue: getComputedStyle(element).getPropertyValue(name).trim(),
-    scope: findVariableScope(element, name)
+    ...findVariableScope(element, name)
   };
 }
 
@@ -241,7 +244,10 @@ function matchesSelectorList(element: Element, selectorText: string): boolean {
     });
 }
 
-function findVariableScope(element: Element, variableName: string): string | undefined {
+function findVariableScope(
+  element: Element,
+  variableName: string
+): Pick<DetectedCssVariable, "scope" | "scopeElement"> {
   const scope = findInlineVariableScope(element, variableName);
   if (scope) {
     return scope;
@@ -261,22 +267,26 @@ function findVariableScope(element: Element, variableName: string): string | und
     }
   }
 
-  return undefined;
+  return {};
 }
 
 function findInlineVariableScope(
   element: Element,
   variableName: string
-): string | undefined {
+): Pick<DetectedCssVariable, "scope" | "scopeElement"> | undefined {
   let current: Element | null = element;
   while (current) {
     if (
       current instanceof HTMLElement &&
       current.style.getPropertyValue(variableName)
     ) {
-      return current === element
-        ? "selected element inline style"
-        : `${current.tagName.toLowerCase()} inline style`;
+      return {
+        scope:
+          current === element
+            ? "selected element inline style"
+            : `${current.tagName.toLowerCase()} inline style`,
+        scopeElement: current
+      };
     }
 
     current = current.parentElement;
@@ -289,7 +299,7 @@ function findVariableScopeInRules(
   element: Element,
   variableName: string,
   rules: CSSRuleList
-): string | undefined {
+): Pick<DetectedCssVariable, "scope" | "scopeElement"> | undefined {
   for (const rule of Array.from(rules).reverse()) {
     if (rule instanceof CSSStyleRule) {
       if (!rule.style.getPropertyValue(variableName)) {
@@ -298,16 +308,23 @@ function findVariableScopeInRules(
 
       const selector = rule.selectorText;
       if (selector.includes(":root")) {
-        return ":root";
+        return {
+          scope: ":root",
+          scopeElement: element.ownerDocument.documentElement
+        };
       }
 
       if (selector === "html" || selector === "body") {
-        return selector;
+        return {
+          scope: selector,
+          scopeElement: element.ownerDocument.querySelector(selector) ?? undefined
+        };
       }
 
       try {
-        if (element.closest(selector)) {
-          return selector;
+        const scopeElement = element.closest(selector);
+        if (scopeElement instanceof HTMLElement) {
+          return { scope: selector, scopeElement };
         }
       } catch {
         continue;

@@ -4,6 +4,7 @@ import colorPickerWidget from "../src/index.js";
 import { formatCssDeclaration } from "../src/core/export.js";
 import { getStorageKey } from "../src/core/storage.js";
 import { isSupportedColorInput } from "../src/core/colors.js";
+import { createStyleMutationManager } from "../src/core/mutations.js";
 import {
   extractCssVariableName,
   formatDisplayColorValue,
@@ -119,5 +120,53 @@ describe("Phase 1 toolbar registration", () => {
     expect(logger.debug).toHaveBeenCalledWith(
       "Color picker widget disabled by configuration."
     );
+  });
+});
+
+describe("Phase 5 mutation tracking", () => {
+  class FakeStyleDeclaration {
+    private readonly values = new Map<string, string>();
+
+    getPropertyValue(property: string) {
+      return this.values.get(property) ?? "";
+    }
+
+    setProperty(property: string, value: string) {
+      this.values.set(property, value);
+    }
+
+    removeProperty(property: string) {
+      this.values.delete(property);
+    }
+  }
+
+  class FakeHTMLElement {
+    style = new FakeStyleDeclaration();
+  }
+
+  (globalThis as unknown as { HTMLElement: typeof HTMLElement }).HTMLElement =
+    FakeHTMLElement as unknown as typeof HTMLElement;
+
+  it("restores original inline style values", () => {
+    const manager = createStyleMutationManager();
+    const element = new FakeHTMLElement() as unknown as HTMLElement;
+    element.style.setProperty("color", "red");
+
+    manager.apply(element, "color", "blue");
+    expect(element.style.getPropertyValue("color")).toBe("blue");
+
+    manager.reset(element, "color");
+    expect(element.style.getPropertyValue("color")).toBe("red");
+  });
+
+  it("removes preview styles that were not originally inline", () => {
+    const manager = createStyleMutationManager();
+    const element = new FakeHTMLElement() as unknown as HTMLElement;
+
+    manager.apply(element, "background-color", "#ffffff");
+    expect(element.style.getPropertyValue("background-color")).toBe("#ffffff");
+
+    manager.resetAll();
+    expect(element.style.getPropertyValue("background-color")).toBe("");
   });
 });
