@@ -11,7 +11,10 @@ import {
   loadColorPickerSession,
   saveColorPickerSession
 } from "../src/core/storage.js";
-import { isSupportedColorInput } from "../src/core/colors.js";
+import {
+  getUnsupportedColorMessage,
+  isSupportedColorInput
+} from "../src/core/colors.js";
 import { createStyleMutationManager } from "../src/core/mutations.js";
 import {
   extractCssVariableName,
@@ -73,6 +76,21 @@ describe("Phase 0 scaffold", () => {
     expect(isSupportedColorInput("rgb(255 255 255)")).toBe(true);
     expect(isSupportedColorInput("hsl(210 100% 50%)")).toBe(true);
     expect(isSupportedColorInput("oklch(0.7 0.2 260)")).toBe(false);
+  });
+
+  it("explains unsupported color inputs with actionable messages", () => {
+    expect(getUnsupportedColorMessage("")).toBe(
+      "Enter a color before previewing."
+    );
+    expect(getUnsupportedColorMessage("#12")).toBe(
+      "HEX colors must use 3, 4, 6, or 8 hexadecimal digits."
+    );
+    expect(getUnsupportedColorMessage("red")).toBe(
+      "Named colors are not editable yet. Use HEX, RGB(A), or HSL(A)."
+    );
+    expect(getUnsupportedColorMessage("oklch(0.7 0.2 260)")).toBe(
+      "That color function is not supported yet. Use HEX, RGB(A), or HSL(A)."
+    );
   });
 
   it("scopes storage keys by origin and pathname", () => {

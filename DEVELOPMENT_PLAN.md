@@ -2,12 +2,15 @@
 
 ## Current Repository State
 
-Phase 6 implementation is now present:
+Phase 8 documentation and release prep are now present:
 
 - Astro integration registration is present and dev-only.
 - The Dev Toolbar app shell renders in the toolbar ShadowRoot.
 - Element picking, selector display, style inspection, live preview, and reset behavior are implemented.
 - Copy output, recent colors, and local browser-session persistence are implemented for Phase 6.
+- Selector and color error handling, EyeDropper progressive enhancement, responsive toolbar behavior, accessibility refinements, and common-case demo fixtures are implemented for Phase 7.
+- README installation, usage, limitations, troubleshooting, and release checklist sections are present.
+- Browser flow validation is currently manual; automated Playwright coverage is intentionally deferred while this remains a solo local tool.
 
 ## Goal
 
@@ -581,7 +584,7 @@ Deliverables:
 Validation:
 
 - Manual test across Chromium, Firefox, and Safari where available.
-- Playwright coverage for pick, edit, reset, and copy flows.
+- Manual walkthrough coverage for pick, edit, reset, copy, and persistence flows.
 - No obvious layout overlap or clipped controls at mobile widths.
 
 ### Phase 8: Documentation And Release Prep
@@ -613,7 +616,9 @@ Focus on pure logic:
 
 ### Browser Tests
 
-Use a demo Astro project with Playwright:
+Browser flow validation is manual for the first solo-user version. Revisit Playwright only if the tool becomes shared, release-critical, or starts regressing in manual use.
+
+Use the demo Astro project to verify:
 
 - Toolbar app appears in dev.
 - Pick mode selects the intended element.

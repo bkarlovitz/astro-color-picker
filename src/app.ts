@@ -1,6 +1,10 @@
 import { defineToolbarApp } from "astro/toolbar";
 
 import {
+  getUnsupportedColorMessage,
+  isSupportedColorInput
+} from "./core/colors.js";
+import {
   createElementPicker,
   formatElementLabel,
   generateSelector,
@@ -34,6 +38,16 @@ import type { ColorProperty } from "./types.js";
 interface ToolbarAppEventTargetLike {
   onToggled?: (callback: (event: { state: boolean }) => void) => void;
 }
+
+interface EyeDropperConstructor {
+  new (): {
+    open: () => Promise<{ sRGBHex: string }>;
+  };
+}
+
+type WindowWithEyeDropper = Window & {
+  EyeDropper?: EyeDropperConstructor;
+};
 
 export interface ColorPickerAppHandle {
   destroy: () => void;
@@ -115,6 +129,10 @@ export function mountColorPickerApp(
     windowElement,
     '[data-action="reset-all"]'
   );
+  const eyeDropperButton = getRequiredElement<HTMLButtonElement>(
+    windowElement,
+    '[data-action="eyedropper"]'
+  );
   const copyCssButton = getRequiredElement<HTMLButtonElement>(
     windowElement,
     '[data-action="copy-css"]'
@@ -144,6 +162,9 @@ export function mountColorPickerApp(
   const mutations = createStyleMutationManager();
   let persistedSession = loadSession();
   let recentColors = persistedSession.recentColors;
+  const EyeDropper = (window as WindowWithEyeDropper).EyeDropper;
+  eyeDropperButton.hidden = !EyeDropper;
+  eyeDropperButton.disabled = !EyeDropper;
 
   const picker = createElementPicker({
     onHover(summary) {
@@ -256,6 +277,10 @@ export function mountColorPickerApp(
     statusMessage.textContent = "All preview changes reset.";
   });
 
+  eyeDropperButton.addEventListener("click", () => {
+    void openEyeDropper();
+  });
+
   copyCssButton.addEventListener("click", () => {
     const change = getCurrentDeclarationChange();
     if (!change) {
@@ -353,19 +378,30 @@ export function mountColorPickerApp(
   function selectFromManualSelector(selector: string) {
     const trimmedSelector = selector.trim();
     if (!trimmedSelector) {
+      statusMessage.textContent = "Enter a CSS selector before selecting.";
       return;
     }
 
-    let element: Element | null = null;
+    let matches: NodeListOf<Element>;
     try {
-      element = document.querySelector(trimmedSelector);
+      matches = document.querySelectorAll(trimmedSelector);
     } catch {
-      statusMessage.textContent = "Selector is invalid.";
+      statusMessage.textContent =
+        "Selector syntax is invalid. Check brackets, quotes, and pseudo-selectors.";
       return;
     }
 
-    if (!element || !isPickableElement(element)) {
-      statusMessage.textContent = "Selector did not match a selectable element.";
+    if (matches.length === 0) {
+      statusMessage.textContent = `No elements match ${formatInlineValue(
+        trimmedSelector
+      )}.`;
+      return;
+    }
+
+    const element = Array.from(matches).find((match) => isPickableElement(match));
+    if (!element) {
+      statusMessage.textContent =
+        "That selector only matches toolbar, document, or ignored elements.";
       return;
     }
 
@@ -378,7 +414,10 @@ export function mountColorPickerApp(
     renderInspectedProperty();
     setMode("Selected");
     setPickButtonLabel("Pick");
-    statusMessage.textContent = "Element selected.";
+    statusMessage.textContent =
+      matches.length > 1
+        ? `Matched ${matches.length} elements; selected the first selectable one.`
+        : "Element selected.";
   }
 
   function renderSelectedState(summary: SelectedElementSummary | null) {
@@ -410,6 +449,7 @@ export function mountColorPickerApp(
       colorInput.value = "#000000";
       hexInput.value = "";
       tokenSummary.textContent = "No variable detected";
+      setColorInputValidity(true);
       setSwatch(currentSwatch, "#000000", "Current", "Current");
       setSwatch(originalSwatch, "#000000", "Original", "Original");
       editVariableToggle.checked = false;
@@ -430,6 +470,7 @@ export function mountColorPickerApp(
     const hexValue = rgbToHex(colorValue);
 
     colorReadout.textContent = `${property}: ${colorValue}`;
+    setColorInputValidity(true);
     hexInput.value = hexValue ?? colorValue;
     if (hexValue) {
       colorInput.value = hexValue;
@@ -496,10 +537,14 @@ export function mountColorPickerApp(
 
     const value = getPreviewColorValue();
     if (!value) {
-      statusMessage.textContent = "Enter a supported color value.";
+      setColorInputValidity(false);
+      statusMessage.textContent =
+        getUnsupportedColorMessage(hexInput.value) ??
+        "Use a supported color format: HEX, RGB(A), or HSL(A).";
       return;
     }
 
+    setColorInputValidity(true);
     const property = getSelectedColorProperty();
     const inspected = currentInspection.properties[property];
     const variable = inspected.detectedVariable;
@@ -775,6 +820,33 @@ export function mountColorPickerApp(
     }
   }
 
+  async function openEyeDropper() {
+    if (!EyeDropper) {
+      statusMessage.textContent = "EyeDropper is not supported in this browser.";
+      return;
+    }
+
+    try {
+      const result = await new EyeDropper().open();
+      hexInput.value = result.sRGBHex;
+      colorInput.value = result.sRGBHex;
+      applyCurrentPreview();
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        statusMessage.textContent = "EyeDropper canceled.";
+        return;
+      }
+
+      statusMessage.textContent = "EyeDropper could not sample a color.";
+    }
+  }
+
+  function setColorInputValidity(valid: boolean) {
+    const value = valid ? "false" : "true";
+    hexInput.setAttribute("aria-invalid", value);
+    colorInput.setAttribute("aria-invalid", value);
+  }
+
   function getPreviewColorValue(): string | undefined {
     const rawValue = hexInput.value.trim();
     if (!rawValue) {
@@ -785,11 +857,7 @@ export function mountColorPickerApp(
       return hexToRgb(rawValue, Number(opacityInput.value) / 100);
     }
 
-    if (
-      /^#[0-9a-f]{3,8}$/i.test(rawValue) ||
-      /^rgba?\(/i.test(rawValue) ||
-      /^hsla?\(/i.test(rawValue)
-    ) {
+    if (isSupportedColorInput(rawValue)) {
       return rawValue;
     }
 
@@ -803,6 +871,10 @@ export function mountColorPickerApp(
       windowElement.remove();
     }
   };
+}
+
+function formatInlineValue(value: string): string {
+  return `"${value.length > 48 ? `${value.slice(0, 45)}...` : value}"`;
 }
 
 function setSwatch(

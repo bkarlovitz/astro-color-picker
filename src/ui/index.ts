@@ -24,6 +24,7 @@ export function createButton(
     action?: string;
     disabled?: boolean;
     icon?: string;
+    title?: string;
     variant?: "primary" | "secondary" | "ghost";
   } = {}
 ): HTMLButtonElement {
@@ -32,6 +33,10 @@ export function createButton(
   button.className = `acp-button acp-button--${options.variant ?? "secondary"}`;
   if (options.action) {
     button.dataset.action = options.action;
+  }
+  if (options.title) {
+    button.title = options.title;
+    button.setAttribute("aria-label", options.title);
   }
   button.disabled = options.disabled ?? false;
 
@@ -180,6 +185,7 @@ function createEditorSection(): HTMLElement {
   colorText.textContent = "Color";
   const colorInput = document.createElement("input");
   colorInput.type = "color";
+  colorInput.id = "acp-color-input";
   colorInput.name = "color";
   colorInput.value = "#2563eb";
   colorInput.dataset.colorPickerWidget = "color-input";
@@ -191,18 +197,28 @@ function createEditorSection(): HTMLElement {
   hexText.textContent = "HEX";
   const hexInput = document.createElement("input");
   hexInput.type = "text";
+  hexInput.id = "acp-hex-input";
   hexInput.name = "hex";
   hexInput.value = "#2563eb";
+  hexInput.placeholder = "#2563eb";
   hexInput.inputMode = "text";
   hexInput.spellcheck = false;
   hexInput.dataset.colorPickerWidget = "hex-input";
   hexLabel.append(hexText, hexInput);
 
-  grid.append(colorLabel, hexLabel);
+  const eyeDropperButton = createButton("Sample", {
+    action: "eyedropper",
+    disabled: true,
+    icon: eyedropperIcon,
+    title: "Sample a screen color with the EyeDropper"
+  });
+  eyeDropperButton.hidden = true;
+
+  grid.append(colorLabel, hexLabel, eyeDropperButton);
 
   const readout = document.createElement("output");
   readout.className = "acp-readout";
-  readout.htmlFor = "color";
+  readout.htmlFor = "acp-color-input acp-hex-input";
   readout.dataset.colorPickerWidget = "color-readout";
   readout.textContent = "rgb(37 99 235)";
 
@@ -368,6 +384,7 @@ const colorPickerShellStyles = `
     display: grid;
     gap: 14px;
     min-width: 0;
+    padding-bottom: 2px;
     color: #fafafa;
     font-family:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
@@ -519,6 +536,7 @@ const colorPickerShellStyles = `
     align-items: center;
     justify-content: center;
     gap: 6px;
+    min-width: 0;
     min-height: 32px;
     border: 1px solid transparent;
     border-radius: 6px;
@@ -527,6 +545,11 @@ const colorPickerShellStyles = `
     font-size: 13px;
     font-weight: 650;
     cursor: pointer;
+  }
+
+  .acp-button span:last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .acp-button:disabled {
@@ -610,7 +633,8 @@ const colorPickerShellStyles = `
 
   .acp-editor-grid {
     display: grid;
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    align-items: end;
     gap: 8px;
   }
 
@@ -707,10 +731,39 @@ const colorPickerShellStyles = `
     gap: 8px;
   }
 
+  .acp-actions .acp-button {
+    flex: 1 1 96px;
+  }
+
   .acp-live {
     min-height: 1em;
     margin: 0;
     color: #a7f3d0;
+  }
+
+  @media (max-width: 420px) {
+    :host astro-dev-toolbar-window {
+      width: calc(100vw - 16px);
+      max-height: calc(100vh - 88px);
+    }
+
+    .acp-header,
+    .acp-row--split {
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .acp-editor-grid {
+      grid-template-columns: 72px minmax(0, 1fr);
+    }
+
+    .acp-editor-grid .acp-button {
+      grid-column: 1 / -1;
+    }
+
+    .acp-actions .acp-button {
+      flex-basis: calc(50% - 4px);
+    }
   }
 `;
 
@@ -726,3 +779,5 @@ const resetAllIcon =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.5 6h-2V4m.2 2A5 5 0 0 1 10 3.2M12.5 10h2v2m-.2-2A5 5 0 0 1 6 12.8"/></svg>';
 const copyIcon =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path stroke="currentColor" stroke-linejoin="round" stroke-width="1.5" d="M5.25 5.25h7v7h-7z"/><path stroke="currentColor" stroke-linejoin="round" stroke-width="1.5" d="M3.25 10.75H2.5a.75.75 0 0 1-.75-.75V2.5c0-.41.34-.75.75-.75H10c.41 0 .75.34.75.75v.75"/></svg>';
+const eyedropperIcon =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m10.75 2.25 3 3m-1.5-1.5-7.7 7.7-2.3.3.3-2.3 7.7-7.7a1.06 1.06 0 0 1 1.5 0Z"/><path stroke="currentColor" stroke-linecap="round" stroke-width="1.5" d="M3.75 13.25h8.5"/></svg>';
