@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+demo/node_modules/
+
+# Build output
+dist/
+demo/dist/
+
+# Astro and Vite generated files
+.astro/
+demo/.astro/
+.vite/
+.vite-temp/
+
+# Tests and coverage
+coverage/
+playwright-report/
+test-results/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
