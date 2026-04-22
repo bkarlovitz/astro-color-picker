@@ -88,6 +88,7 @@ function createHeader(): HTMLElement {
 
   const status = document.createElement("span");
   status.className = "acp-status";
+  status.dataset.colorPickerWidget = "mode-status";
   status.textContent = "Ready";
 
   header.append(title, status);
